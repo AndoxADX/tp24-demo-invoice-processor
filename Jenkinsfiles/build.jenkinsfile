@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+
+    environment {
+        DOTNET_VERSION = '6.0'
+        REPO_URL = 'https://github.com/AndoxADX/tp24-demo-invoice-processor'
+        SOLUTION_FILE = 'demo-invoice-processor.sln'
+        APPSETTINGS_FILE = 'appsettings.json'
+        APPSETTINGS_DEV_FILE = 'appsettings.Development.json'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git url: "${env.REPO_URL}"
+            }
+        }
+
+        stage('Install .NET 6 SDK if not installed') {
+            steps {
+                script {
+                    def dotnetVersionCheck = sh(script: 'dotnet --version', returnStdout: true).trim()
+                    if (!dotnetVersionCheck.contains(env.DOTNET_VERSION)) {
+                        sh 'wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh'
+                        sh 'chmod +x dotnet-install.sh'
+                        sh './dotnet-install.sh --channel 6.0'
+                        sh 'export PATH=$HOME/.dotnet:$PATH'
+                    }
+                }
+            }
+        }
+
+        stage('Check appsettings.json files') {
+            steps {
+                script {
+                    def appSettingsExists = fileExists(env.APPSETTINGS_FILE)
+                    def appSettingsDevExists = fileExists(env.APPSETTINGS_DEV_FILE)
+
+                    if (!appSettingsExists || !appSettingsDevExists) {
+                        error("Required configuration files not found: ${env.APPSETTINGS_FILE}, ${env.APPSETTINGS_DEV_FILE}")
+                    }
+                }
+            }
+        }
+
+        stage('Build Solution') {
+            steps {
+                script {
+                    sh "dotnet build ${env.SOLUTION_FILE} --configuration Release"
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline execution completed.'
+        }
+        success {
+            echo 'Build was successful.'
+        }
+        failure {
+            echo 'Build failed.'
+        }
+    }
+}
