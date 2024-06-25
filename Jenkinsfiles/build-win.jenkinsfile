@@ -1,5 +1,5 @@
 pipeline {
-    agent any
+    agent "ec2-fleet-win"
 
     environment {
         DOTNET_VERSION = '6.0'
