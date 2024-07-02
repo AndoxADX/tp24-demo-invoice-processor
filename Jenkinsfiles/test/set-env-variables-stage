@@ -1,0 +1,39 @@
+pipeline {
+    agent {label "Bastion"}
+
+    stages {
+        stage('Hello') {
+            steps {
+                script {
+                    env.dev_version = "NOT DEFINED DEV"
+                    env.qa_version  = "NOT DEFINED QA"
+                    env.pp_version  = "NOT DEFINED PP"
+                    env.prd_version = "NOT DEFINED PRD"
+                }
+            }
+        }
+        stage('inject variables') {
+            steps {
+                echo "PRE DEV version = ${env.dev_version}"
+                script {
+                    def variables = build job: 'set-env-variables'
+                    def vars = variables.getBuildVariables()
+                    println "found variables" + vars
+                    env.dev_version = vars.my_dev_version
+                    env.qa_version  = vars.my_qa_version
+                    env.pp_version  = vars.my_pp_version
+                    env.prd_version = vars.my_prd_version
+                }
+            }
+        }
+
+        stage('next job') {
+            steps {
+                echo "NEXT JOB DEV version = ${env.dev_version}"
+                echo "NEXT JOB QA version = ${env.qa_version}"
+                echo "NEXT JOB PP version = ${env.pp_version}"
+                echo "NEXT JOB PRD version = ${env.prd_version}"
+            }
+        }
+    }
+}

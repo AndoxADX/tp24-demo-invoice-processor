@@ -1,0 +1,18 @@
+pipeline {
+    agent {label 'Bastion'}
+
+    stages {
+        stage('Hello') {
+            steps {
+                script
+                {
+                    env.my_dev_version = "0.0.4-SNAPSHOT"
+                    env.my_qa_version  = "0.0.4-SNAPSHOT"
+                    env.my_pp_version  = "0.0.2"
+                    env.my_prd_version = "0.0.2"
+                    echo " My versions  [DEV:${env.my_dev_version}] [QA:${env.my_qa_version}] [PP:${env.my_pp_version}] [PRD:${env.my_prd_version}]"
+                }
+            }
+        }
+    }
+}

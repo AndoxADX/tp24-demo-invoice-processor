@@ -1,0 +1,64 @@
+pipeline {
+    agent {label 'ec2-fleet-win' }
+    parameters {
+        string(name: 'ARTIFACT_BUILD_NUMBER', defaultValue: 'ARTIFACT_BUILD_NUMBER', description: 'The build number of the artifact FROM UPSTREAM JOB')
+        string(name: 'ARTIFACT_DIR', defaultValue: 'ARTIFACT_DIR', description: 'The directory where artifacts are stored')
+        string(name: 'ARTIFACT_JOB_NAME', defaultValue: 'ARTIFACT_JOB_NAME', description: 'The name of the job that produced the artifact')
+    }
+
+    stages {
+        stage('Copy Artifact') {
+            steps {
+                script{
+                    // print params
+                    echo "ARTIFACT_BUILD_NUMBER: ${params.ARTIFACT_BUILD_NUMBER}"
+                    echo "ARTIFACT_DIR: ${params.ARTIFACT_DIR}"
+                    echo "ARTIFACT_JOB_NAME: ${params.ARTIFACT_JOB_NAME}"
+
+
+                    // Start build object
+                    // def upstreamBuild = build job: 'test-windows-fleet'
+                    // def vars = upstreamBuild.getBuildVariables()
+                    // println "found variables" + vars
+                    // vars.each { k, v -> env[k] = v }
+
+
+
+                     // Fetch the job object for 'test-windows-fleet'
+                    def upstreamJob = getJobObject('test-windows-fleet')
+                    def latestBuild = upstreamJob.getLastBuild()
+                    def latestBuildVariables = upstreamBuild.getBuildVariables()
+                    println "latestBuildVariables:" + latestBuildVariables
+                    // Get the build number of the latest build
+                    def latestBuildNumber = latestBuild.getNumber()
+                    env.ARTIFACT_BUILD_NUMBER = latestBuildNumber
+                }
+                step([
+                    $class: 'CopyArtifact',
+                    filter: "bin/Release/net${env.BUILD_DOTNET_VERSION}/publish/application.zip",
+                    fingerprintArtifacts: true,
+                    optional: true,
+                    projectName: env.JOB_NAME,
+                    selector: [$class: 'SpecificBuildSelector',
+                            buildNumber: latestBuildNumber],
+                    target: 'Built_Artifacts'
+                ])
+            }
+        }
+        stage('Display Artifacts') {
+            steps {
+                script {
+                    // Assuming ARTIFACT_DIR is passed as a parameter to this pipeline
+                    def artifactDir = params.ARTIFACT_DIR
+                    echo "Listing artifacts in: ${artifactDir}"
+        
+                    // List files in the directory and print each file name
+                    def files = sh(script: "ls ${artifactDir}", returnStdout: true).trim()
+                    echo "Artifacts found:\n${files}"
+                }
+            }
+    }
+    
+    
+}
+}

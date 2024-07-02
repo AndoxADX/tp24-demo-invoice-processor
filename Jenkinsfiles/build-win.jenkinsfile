@@ -1,8 +1,8 @@
 pipeline {
-    agent "ec2-fleet-win"
+    agent { label 'Windows' }
 
     environment {
-        DOTNET_VERSION = '6.0'
+        DOTNET_VERSIONS = '6.0,7.0,8.0'
         REPO_URL = 'https://github.com/AndoxADX/tp24-demo-invoice-processor'
         SOLUTION_FILE = 'demo-invoice-processor.sln'
         APPSETTINGS_FILE = 'appsettings.json'
@@ -10,22 +10,53 @@ pipeline {
     }
 
     stages {
+        stage('Setup Environment') {
+            steps {
+                script {
+                    def chocoCheck = bat(script: 'choco -v', returnStatus: true)
+                    if (chocoCheck != 0) {
+                        bat 'Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString(\'https://chocolatey.org/install.ps1\'))'
+                    }
+
+                    def gitCheck = bat(script: 'git --version', returnStatus: true)
+                    if (gitCheck != 0) {
+                        bat 'choco install git -y'
+                    }
+
+                    bat 'refreshenv'
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 git url: "${env.REPO_URL}"
             }
         }
 
-        stage('Install .NET 6 SDK if not installed') {
+        stage('Install .NET SDK if not installed') {
             steps {
                 script {
-                    def dotnetVersionCheck = bat(script: 'dotnet --version', returnStdout: true).trim()
-                    if (!dotnetVersionCheck.contains(env.DOTNET_VERSION)) {
+                    def dotnetVersionOutput = bat(script: 'dotnet --version', returnStdout: true).trim()
+                    def match = (dotnetVersionOutput =~ /(\d+\.\d+\.\d+)/)
+                    def dotnetVersionCheck = match ? match[0][0] : ''
+                    echo "The .NET version is: ${dotnetVersionCheck}"
+                    def allowedVersions = env.DOTNET_VERSIONS.split(',')
+                    echo "Allowed versions: ${allowedVersions}"
+                    def versionIsAllowed = allowedVersions.any { dotnetVersionCheck.startsWith(it.trim()) }
+                    echo "Is the version allowed? ${versionIsAllowed}"
+                    if (!versionIsAllowed) {
+                        def versionToInstall = allowedVersions[0].trim()
                         bat 'curl -L https://dot.net/v1/dotnet-install.ps1 -o dotnet-install.ps1'
-                        bat 'powershell -ExecutionPolicy Bypass -File dotnet-install.ps1 -Channel 6.0'
+                        bat "powershell -ExecutionPolicy Bypass -File dotnet-install.ps1 -Channel ${versionToInstall}"
                         bat 'setx PATH "%USERPROFILE%\\.dotnet\\; %PATH%"'
                         bat 'set DOTNET_ROOT=%USERPROFILE%\\.dotnet'
+                        env.BUILD_DOTNET_VERSION=${versionToInstall}
+                    } else {
+                        env.BUILD_DOTNET_VERSION = dotnetVersionCheck
                     }
+
+                    echo "Final .NET version to use: ${env.BUILD_DOTNET_VERSION}"
                 }
             }
         }
@@ -43,11 +74,59 @@ pipeline {
             }
         }
 
-        stage('Build Solution') {
+        stage('Build and Publish') {
             steps {
                 script {
+                    
+                    echo "Using .NET version: ${env.BUILD_DOTNET_VERSION}"
+                    def publishDir = "bin/Release/net${env.BUILD_DOTNET_VERSION}/publish/"
+                    env.ARTIFACT_DIR = publishDir
                     bat "dotnet build ${env.SOLUTION_FILE} --configuration Release"
+                    bat "dotnet publish ${env.SOLUTION_FILE} -c Release -o ${publishDir}"
+                    bat "powershell -Command \"Compress-Archive -Path ${publishDir}* -DestinationPath ${publishDir}application.zip -Force\""
                 }
+            }
+            post {
+                always {
+                    script {
+                        // def buildDotnetVersion = bat(script: 'echo %BUILD_DOTNET_VERSION%', returnStdout: true).trim()
+                        def publishDir = "bin/Release/net${env.BUILD_DOTNET_VERSION}/publish/"
+                        archiveArtifacts artifacts: "${publishDir}application.zip", fingerprint: true
+                    }
+                }
+            }
+        }
+
+        stage('Trigger Another Pipeline') {
+            agent { label 'Bastion' }
+            steps {
+                script {
+                    // echo env.BUILD_DOTNET_VERSION, env.ARTEFACT_DIR, env.ARTEFACT_JOB_NAME, env.ARTEFACT_BUILD_NUMBER
+                    echo env.BUILD_NUMBER, env.ARTIFACT_DIR, env.JOB_NAME
+
+                    // Trigger another pipeline
+                    build job: 'Build_Release_Dev_Sandbox', parameters: [
+                        // string(name: 'env.BUILD_DOTNET_VERSION', value: env.BUILD_DOTNET_VERSION), // Pass to the next pipeline
+                        // string(name: 'APPSETTINGS_FILE', value: env.APPSETTINGS_FILE),
+                        // string(name: 'APPSETTINGS_DEV_FILE', value: env.APPSETTINGS_DEV_FILE),
+                        // string(name: 'REPO_URL', value: env.REPO_URL),
+                        // string(name: 'SOLUTION_FILE', value: env.SOLUTION_FILE),
+                        string(name: 'env.ARTIFACT_BUILD_NUMBER', value: env.BUILD_NUMBER), // Pass to the next pipeline
+                        string(name: 'env.ARTIFACT_DIR', value: env.ARTIFACT_DIR), // Pass to the next pipeline
+                        string(name: 'env.ARTIFACT_JOB_NAME', value: env.JOB_NAME) // Pass to the next pipeline
+                    ]
+                }
+                // step([
+                //     $class: 'CopyArtifact',
+                //     filter: "bin/Release/net${env.BUILD_DOTNET_VERSION}/publish/application.zip",
+                //     fingerprintArtifacts: true,
+                //     optional: true,
+                //     projectName: env.JOB_NAME,
+                //     selector: [$class: 'SpecificBuildSelector',
+                //             buildNumber: env.BUILD_NUMBER],
+                //     target: 'Built_Artifacts'
+                // ])
+
             }
         }
     }
