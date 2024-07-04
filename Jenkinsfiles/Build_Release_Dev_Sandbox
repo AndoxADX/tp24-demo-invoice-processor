@@ -1,3 +1,4 @@
+// Build_Release_Dev_Sandbox is a pipeline that is triggered by a webhook from the Build_Release_Dev_Sandbox job in Jenkins. This pipeline is responsible for copying the artifact from the upstream job and displaying the artifacts in the specified directory.
 pipeline {
     agent {label 'ec2-fleet-win' }
     parameters {
